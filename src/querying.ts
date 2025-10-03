@@ -1,5 +1,8 @@
 import { isTag, hasChildren, Element, AnyNode, ParentNode } from "domhandler";
 
+// WeakSet for tracking visited nodes to avoid duplicate processing
+let visitedNodes: WeakSet<AnyNode> | null = null;
+
 /**
  * Search a node and its children for nodes passing a test function. If `node` is not an array, it will be wrapped in one.
  *
@@ -16,7 +19,15 @@ export function filter(
     recurse = true,
     limit: number = Infinity,
 ): AnyNode[] {
-    return find(test, Array.isArray(node) ? node : [node], recurse, limit);
+    const nodes = Array.isArray(node) ? node : [node];
+    // Only use visited tracking for large trees
+    if (recurse && nodes.length > 0) {
+        visitedNodes = new WeakSet();
+        const result = find(test, nodes, recurse, limit);
+        visitedNodes = null;
+        return result;
+    }
+    return find(test, nodes, recurse, limit);
 }
 
 /**
@@ -40,10 +51,15 @@ export function find(
     const nodeStack: AnyNode[][] = [Array.isArray(nodes) ? nodes : [nodes]];
     /** Stack of the indices within the arrays. */
     const indexStack = [0];
+    const visited = visitedNodes;
 
     for (;;) {
+        // Cache stack top for faster access
+        const currentStack = nodeStack[0];
+        const currentIndex = indexStack[0];
+
         // First, check if the current array has any more elements to look at.
-        if (indexStack[0] >= nodeStack[0].length) {
+        if (currentIndex >= currentStack.length) {
             // If we have no more arrays to look at, we are done.
             if (indexStack.length === 1) {
                 return result;
@@ -57,20 +73,34 @@ export function find(
             continue;
         }
 
-        const elem = nodeStack[0][indexStack[0]++];
+        const elem = currentStack[currentIndex];
+        indexStack[0]++;
+
+        // Skip if already visited
+        if (visited && visited.has(elem)) {
+            continue;
+        }
 
         if (test(elem)) {
             result.push(elem);
             if (--limit <= 0) return result;
         }
 
-        if (recurse && hasChildren(elem) && elem.children.length > 0) {
-            /*
-             * Add the children to the stack. We are depth-first, so this is
-             * the next array we look at.
-             */
-            indexStack.unshift(0);
-            nodeStack.unshift(elem.children);
+        if (recurse && hasChildren(elem)) {
+            const { children } = elem;
+            const childrenLength = children.length;
+
+            if (childrenLength > 0) {
+                // Mark as visited
+                if (visited) visited.add(elem);
+
+                /*
+                 * Add the children to the stack. We are depth-first, so this is
+                 * the next array we look at.
+                 */
+                indexStack.unshift(0);
+                nodeStack.unshift(children);
+            }
         }
     }
 }
@@ -158,7 +188,11 @@ export function findAll(
     const indexStack = [0];
 
     for (;;) {
-        if (indexStack[0] >= nodeStack[0].length) {
+        // Cache stack top for faster access
+        const currentStack = nodeStack[0];
+        const currentIndex = indexStack[0];
+
+        if (currentIndex >= currentStack.length) {
             if (nodeStack.length === 1) {
                 return result;
             }
@@ -171,13 +205,17 @@ export function findAll(
             continue;
         }
 
-        const elem = nodeStack[0][indexStack[0]++];
+        const elem = currentStack[currentIndex];
+        indexStack[0]++;
 
         if (isTag(elem) && test(elem)) result.push(elem);
 
-        if (hasChildren(elem) && elem.children.length > 0) {
-            indexStack.unshift(0);
-            nodeStack.unshift(elem.children);
+        if (hasChildren(elem)) {
+            const { children } = elem;
+            if (children.length > 0) {
+                indexStack.unshift(0);
+                nodeStack.unshift(children);
+            }
         }
     }
 }

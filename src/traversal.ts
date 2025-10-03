@@ -7,6 +7,9 @@ import {
     hasChildren,
 } from "domhandler";
 
+// Cache for empty arrays to reduce allocations
+const EMPTY_ARRAY: ChildNode[] = [];
+
 /**
  * Get a node's children.
  *
@@ -15,7 +18,7 @@ import {
  * @returns `elem`'s children, or an empty array.
  */
 export function getChildren(elem: AnyNode): ChildNode[] {
-    return hasChildren(elem) ? elem.children : [];
+    return hasChildren(elem) ? elem.children : EMPTY_ARRAY;
 }
 
 export function getParent(elem: AnyNode): ParentNode | null;

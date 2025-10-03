@@ -4,6 +4,31 @@ import { filter, findOne } from "./querying.js";
 
 type TestType = (elem: AnyNode) => boolean;
 
+// Cache for case-insensitive tag name comparisons
+const tagNameCache = new Map<string, Map<string, boolean>>();
+
+/**
+ * Compare tag names case-insensitively with caching.
+ *
+ * @param tagName The tag name to compare.
+ * @param searchName The search name to compare against.
+ * @returns Whether the tag names match (case-insensitive).
+ */
+function compareCaseInsensitive(tagName: string, searchName: string): boolean {
+    let tagCache = tagNameCache.get(tagName);
+    if (!tagCache) {
+        tagCache = new Map();
+        tagNameCache.set(tagName, tagCache);
+    }
+
+    let result = tagCache.get(searchName);
+    if (result === undefined) {
+        result = tagName.toLowerCase() === searchName.toLowerCase();
+        tagCache.set(searchName, result);
+    }
+    return result;
+}
+
 /**
  * An object with keys to check elements against. If a key is `tag_name`,
  * `tag_type` or `tag_contains`, it will check the value against that specific
@@ -149,6 +174,14 @@ export function getElementById(
     recurse = true,
 ): Element | null {
     if (!Array.isArray(nodes)) nodes = [nodes];
+
+    // Fast path for string IDs
+    if (typeof id === "string") {
+        const fastCheck = (elem: AnyNode): elem is Element =>
+            isTag(elem) && elem.attribs?.["id"] === id;
+        return findOne(fastCheck, nodes, recurse);
+    }
+
     return findOne(getAttribCheck("id", id), nodes, recurse);
 }
 
@@ -168,6 +201,14 @@ export function getElementsByTagName(
     recurse = true,
     limit: number = Infinity,
 ): Element[] {
+    // Fast path for string tag names with case-insensitive comparison
+    if (typeof tagName === "string" && tagName !== "*") {
+        const lowerTagName = tagName.toLowerCase();
+        const fastCheck = (elem: AnyNode): elem is Element =>
+            isTag(elem) && compareCaseInsensitive(elem.name, lowerTagName);
+        return filter(fastCheck, nodes, recurse, limit) as Element[];
+    }
+
     return filter(
         Checks["tag_name"](tagName),
         nodes,
@@ -192,6 +233,13 @@ export function getElementsByClassName(
     recurse = true,
     limit: number = Infinity,
 ): Element[] {
+    // Fast path for string class names
+    if (typeof className === "string") {
+        const fastCheck = (elem: AnyNode): elem is Element =>
+            isTag(elem) && elem.attribs?.["class"] === className;
+        return filter(fastCheck, nodes, recurse, limit) as Element[];
+    }
+
     return filter(
         getAttribCheck("class", className),
         nodes,
